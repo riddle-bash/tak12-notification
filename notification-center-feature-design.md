@@ -4,7 +4,7 @@
 
 ## 1. Overview
 
-Học sinh nhận thông báo từ hai nguồn: nội dung MKT soạn thủ công (tin tức, khuyến mãi) và sự kiện hệ thống tự động (11 trigger: giao bài, deadline, đơn hàng, góp ý, danh hiệu, sao thưởng, thứ hạng — xem §5.2). Cả hai đổ vào một model campaign + fan-out dùng chung, để trang nhận thông báo của học sinh và bảng theo dõi của MKT chỉ cần viết một lần.
+Học sinh nhận thông báo từ hai nguồn: nội dung MKT soạn thủ công (tin tức, khuyến mãi) và hệ thống tự động thông báo (ví dụ Thưởng sao, Đạt danh hiệu, GV giao bài tập, ...). Cả hai đổ vào một model campaign + fan-out dùng chung, để trang nhận thông báo của học sinh.
 
 So sánh giữa ABP built-in Notification và Custom notification
 
@@ -32,6 +32,7 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 
 ## 2. Business rules
 
+- HS được xem thông báo trong 90 gần đây, riêng các thông báo cũ hơn vẫn được lưu để phục vụ cho MKT
 - Thông báo **Trigger** là thông báo tự động theo cài đặt trong Admin (ví dụ Thưởng sao, Đạt danh hiệu, GV giao bài tập, ...), thuộc nhóm Học Tập hoặc Đơn Hàng, ...
 - Thông báo **Manual** do team MKT quản lý, có thể tuỳ chỉnh nội dung HTML, thời điểm thông báo, danh sách HS được thông báo, thuộc nhóm Tin TAK12.
 - Trigger chỉ tự sinh thông báo khi đang **Bật** *và* đã có nội dung mẫu (Title + Body) được thiết lập; thiếu một trong hai điều kiện thì không sinh, không lỗi.
@@ -57,13 +58,28 @@ namespace CTH.QuizSystem.Notifications
         News  = 3   // "Tin TAK12" — cố định cho Manual
     }
 
-    public enum NotificationSource { Manual, Trigger }
+    public enum NotificationSource
+    {
+        Manual,   // Admin tạo thủ công (chiến dịch gửi tay)
+        Trigger   // Tự động gửi khi có sự kiện kích hoạt (Automate)
+    }
 
-    public enum NotificationTargetType { All, Segment, ImportedList, SingleUser }
+    public enum NotificationTargetType
+    {
+        All,          // Gửi cho tất cả người dùng
+        Segment,      // Gửi theo phân khúc / nhóm người dùng
+        ImportedList, // Gửi theo danh sách người dùng được import
+    }
 
-    public enum CampaignStatus { Draft, Scheduled, Sending, Sent, Failed, Cancelled }
-
-    public enum AccountType { Free, Trial, Pro }
+    public enum CampaignStatus
+    {
+        Draft,      // Bản nháp, chưa gửi
+        Scheduled,  // Đã lên lịch, chờ đến giờ gửi
+        Sending,    // Đang trong quá trình gửi
+        Sent,       // Đã gửi xong
+        Failed,     // Gửi thất bại
+        Cancelled   // Đã huỷ
+    }
 }
 ```
 
@@ -74,16 +90,16 @@ namespace CTH.QuizSystem.Notifications
 | Field | Type | Ghi chú |
 |---|---|---|
 | `Source` | `NotificationSource` | Manual hoặc Trigger |
-| `TriggerCode` | `string` | null nếu Manual; với Trigger là mã cố định do hệ thống seed (`TRG-01`…`TRG-11`), không phải admin tự đặt |
+| `TriggerCode` | `string` | null nếu Manual; hoặc tham chiếu từ TriggerCode trong NotificationTriggers (ví dụ NewAchievement, NewSchoolAssignment) |
 | `Group` | `NotificationGroup` | Study/Order lấy từ trigger config; News nếu Manual (hard-coded) |
 | `GroupKey` | `string` | khoá dedupe theo entity cụ thể, ví dụ `"TRG-04:4821"`; null với campaign Manual |
 | `Title`, `Body` | `string` | Manual: Title ≤ 100, Body ≤ 2.000 ký tự |
 | `LinkUrl` | `string` | dùng cho click tracking |
 | `PayloadJson` | `string` | deep-link data (achievementId, orderId...) |
-| `SearchText` | `string` | title+body đã chuẩn hoá (lowercase, bỏ dấu), tính lại mỗi khi Title/Body đổi |
-| `TargetType` | `NotificationTargetType` | |
+| `SearchText` | `string` | title+body đã chuẩn hoá (lowercase, bỏ dấu), tính lại mỗi khi Title/Body đổi (Optional) |
+| `TargetType` | `NotificationTargetType` | Loại HS: Theo DS import hoặc tất cả HS |
 | `TargetConditionJson` | `string` | serialize từ `NotificationTargetCondition` (xem bên dưới) — chỉ dùng khi `TargetType = Segment` |
-| `ImportedListFileUrl` | `string` | file gốc đã upload, lưu tham chiếu; danh sách user đã khớp nằm ở `NotificationCampaignImportedRecipient`, không resolve lại từ file |
+| `TargetUserIdsJson` | `string` | danh sách user đã đối chiếu khi MKT import danh sách HS |
 | `ScheduledAt`, `SentAt` | `DateTime?` | |
 | `Status` | `CampaignStatus` | |
 | `RecipientCount`, `ReadCount`, `ClickCount` | `int` | denormalized, cập nhật định kỳ; `ClickCount` = tổng lượt click (đếm sự kiện, không phải unique user) |
@@ -100,20 +116,6 @@ namespace CTH.QuizSystem.Notifications
 | `ReadAt` | `DateTime?` | |
 | `ClickedAt` | `DateTime?` | mốc lần click gần nhất — dùng cho UI "đã từng click chưa"; tổng lượt click nằm ở `NotificationClickLog` |
 | `CreationTime` | `DateTime` | |
-
-**`NotificationCampaignImportedRecipient`** — `Entity<int>`. Snapshot danh sách user đã khớp được khi MKT import file, chốt tại thời điểm import (không re-evaluate khi gửi).
-
-| Field | Type | Ghi chú |
-|---|---|---|
-| `CampaignId` | `int` | FK → `NotificationCampaign`, chỉ áp dụng khi `TargetType = ImportedList` |
-| `UserId` | `long` | user đã đối chiếu khớp từ file (ưu tiên theo Email nếu file có cả Email và SĐT) |
-
-**`NotificationClickLog`** — `Entity<int>`. Log từng sự kiện click, phục vụ "tổng lượt click" (US-05) thay vì chỉ đếm unique user.
-
-| Field | Type | Ghi chú |
-|---|---|---|
-| `RecipientId` | `int` | FK → `NotificationRecipient` |
-| `ClickedAt` | `DateTime` | |
 
 **`NotificationTriggerDefinition`** — `Entity<int>`. Cấu hình admin cho từng trigger tự động; **11 dòng khởi điểm được seed sẵn** (xem §5.2), Admin chỉnh metadata (tên, nhóm, bật/tắt, nội dung mẫu), không tự tạo `TriggerCode` mới qua UI.
 
@@ -142,7 +144,7 @@ namespace CTH.QuizSystem.Notifications
 `TargetConditionJson` serialize từ class có schema rõ, không phải object tự do — 3 field đầu là điều kiện mặc định khi chọn "Theo điều kiện", 3 field sau chỉ hiện khi MKT bấm "+ Thêm điều kiện":
 
 ```csharp
-public class NotificationTargetCondition
+public class TargetConditionJson
 {
     public List<AccountType> AccountTypes { get; set; }       // mặc định hiện
     public List<int> BirthYears { get; set; }                  // mặc định hiện
@@ -152,7 +154,7 @@ public class NotificationTargetCondition
 }
 ```
 
-Toàn bộ field có giá trị được kết hợp **AND** khi resolve — không hỗ trợ OR giữa các nhóm điều kiện. `ITargetAudienceResolver.ResolveAsync(condition)` dịch từng field thành điều kiện SQL tương ứng, chạy tại thời điểm gửi thực tế (không phải lúc tạo campaign).
+Toàn bộ field có giá trị được kết hợp **AND** khi resolve
 
 ---
 
@@ -166,11 +168,8 @@ Toàn bộ field có giá trị được kết hợp **AND** khi resolve — kh�
    - `TargetType = ImportedList` — xem quy trình import riêng bên dưới; đối tượng **chốt tại lúc import**, không resolve lại khi gửi.
 2. **Import danh sách (khi chọn ImportedList)** — endpoint riêng, chạy đối chiếu ngay lúc upload, không đợi tới lúc gửi:
    ```csharp
-   Task<ImportPreviewResultDto> PreviewImportAsync(int campaignId, IFormFile file);
-   // đối chiếu theo Email (ưu tiên) hoặc SĐT; trả matchedCount + danh sách dòng không khớp để MKT xem
-   // đồng thời ghi matched userIds vào NotificationCampaignImportedRecipient gắn với campaign (Draft)
+   Task<ImportPreviewResultDto> PreviewImportAsync(int campaignId, IFormFile file)
    ```
-   Giới hạn số dòng / kích thước file: để mở, xem §9.
 3. **"Xem trước"** — đọc thuần từ form state phía FE (Title/Body hiện tại), không gọi API, không tạo bản ghi nào.
 4. **Gửi**:
    - Nếu `ScheduledAt == null` → enqueue Hangfire job gửi ngay.
@@ -203,7 +202,7 @@ Toàn bộ field có giá trị được kết hợp **AND** khi resolve — kh�
 | TRG-10 | Học tập | Rời Top 10 BXH | Loại trừ lẫn nhau với TRG-09 trong cùng lần cập nhật |
 | TRG-11 | Đơn hàng | Đơn đổi quà hoàn tất | Tách biệt TRG-03/04 (đổi quà bằng sao, không phải mua gói) |
 
-Seed 11 dòng này qua SQL script riêng (`20260918_SeedNotificationTriggers.sql`) khi migration chạy; Admin Panel chỉ CRUD `Name`, `Group`, `IsActive`, template — không tạo/xoá `TriggerCode`.
+Seed 11 dòng này qua SQL script riêng (`20260918_SeedNotificationTriggers.sql`) khi migration chạy;
 
 1. **Admin cấu hình** — CRUD `NotificationTriggerDefinition`: sửa tên/nhóm/bật-tắt, và thiết lập `TitleTemplate`/`BodyTemplate` (≤ 100 / ≤ 500 ký tự). Khi lưu template, validate mọi `{{placeholder}}` xuất hiện phải nằm trong `AllowedPlaceholders` của đúng trigger đó.
 2. **Backend phát sinh** — gọi trực tiếp từ đúng chỗ trong domain logic, qua `NotificationTriggerService.PublishAsync(triggerCode, userId, entityKey, placeholders)`:
