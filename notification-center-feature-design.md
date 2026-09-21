@@ -1,34 +1,45 @@
 # Notification Center — Feature Design
 
-**Namespace:** `CTH.QuizSystem.Notifications`
-**Physical location:** `CTH.QuizSystem.Core/Notifications` (domain) + `CTH.QuizSystem.Application/Notifications` (application services)
-**Status:** Draft (updated against PRD NOTIF-001)
-
 ---
 
 ## 1. Overview
 
 Học sinh nhận thông báo từ hai nguồn: nội dung MKT soạn thủ công (tin tức, khuyến mãi) và sự kiện hệ thống tự động (11 trigger: giao bài, deadline, đơn hàng, góp ý, danh hiệu, sao thưởng, thứ hạng — xem §5.2). Cả hai đổ vào một model campaign + fan-out dùng chung, để trang nhận thông báo của học sinh và bảng theo dõi của MKT chỉ cần viết một lần.
 
+So sánh giữa ABP built-in Notification và Custom notification
+
+| Requirement                      | ABP built-in                          | Your own model |
+| -------------------------------- | ------------------------------------- | -------------- |
+| Specific users                   | ✅                                     | ✅              |
+| Schedule for exact date/time     | ⚠️ Possible, but not ideal            | ✅              |
+| Rich-text content                | ⚠️ Usually needs custom data/handling | ✅              |
+| Auto/manual trigger              | ⚠️ Not a business concept             | ✅              |
+| Achievement/Gem/Learning sources | ❌                                     | ✅              |
+| Promotion/update campaigns       | ❌                                     | ✅              |
+| Marketing tracking               | ❌                                     | ✅              |
+| Sent/delivered/read/clicked      | Partially                             | ✅              |
+| Retry/history                    | Limited                               | ✅              |
+| Analytics                        | ❌                                     | ✅              |
+| Audit campaign configuration     | ❌                                     | ✅              |
+
+
 Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu thử nghiệm cả hai):
 
 1. **Custom notification system** — bảng riêng, do CTH.QuizSystem tự quản lý, phục vụ toàn bộ nghiệp vụ (nhóm hiển thị, badge theo tab, tìm kiếm, lịch gửi, tracking).
 2. **Abp built-in notification system** (`Abp.Notifications.*`) — giữ nguyên như hiện có, dùng cho realtime bell push qua `IAppNotifier`.
 
-Điểm tích hợp giữa hai hệ thống là `NotificationTriggerService`: mỗi lần trigger tự động bắn ra, service này vừa ghi campaign + recipient vào bảng custom, vừa gọi `IAppNotifier.SendMessageAsync` để đẩy realtime.
-
 ---
 
 ## 2. Business rules
 
-- Thông báo **Automate** luôn gắn cứng vào 1 trong 2 nhóm hiển thị: **Học tập** hoặc **Đơn hàng**, theo cấu hình của trigger sinh ra nó — không suy ra từ loại nội dung, chỉ đọc từ cấu hình.
-- Thông báo **Manual** luôn thuộc nhóm **"Tin TAK12"** — cố định trong code, không nhận giá trị nhóm từ input người tạo.
-- Số chưa đọc trên mỗi tab (kể cả tab "Tất cả") = số thông báo chưa đọc **thuộc nhóm đó, của user hiện tại** — không tính tổng toàn hệ thống.
-- Tìm kiếm từ khoá: không phân biệt hoa/thường, không dấu/có dấu.
+- Thông báo **Trigger** là thông báo tự động theo cài đặt trong Admin (ví dụ Thưởng sao, Đạt danh hiệu, GV giao bài tập, ...), thuộc nhóm Học Tập hoặc Đơn Hàng, ...
+- Thông báo **Manual** do team MKT quản lý, có thể tuỳ chỉnh nội dung HTML, thời điểm thông báo, danh sách HS được thông báo, thuộc nhóm Tin TAK12.
+- Trigger chỉ tự sinh thông báo khi đang **Bật** *và* đã có nội dung mẫu (Title + Body) được thiết lập; thiếu một trong hai điều kiện thì không sinh, không lỗi.
+- Form import danh sách HS được validate khi upload file và cho phép MKT đối chiếu
 - Mỗi thông báo trùng lặp trên cùng một đối tượng (ví dụ nhiều lần cập nhật trạng thái của cùng một đơn hàng) nên gộp vào một dòng thay vì tạo nhiều thông báo rời rạc, miễn là dòng cũ chưa được đọc.
 - Danh sách thông báo phía học sinh chỉ hiển thị trong một cửa sổ thời gian gần đây (mặc định 90 ngày, cấu hình được — xem §5.4); thông báo cũ hơn không hiển thị phía học sinh nhưng vẫn lưu để phục vụ báo cáo/thống kê phía MKT.
-- Đối tượng nhận của campaign **Segment** được chốt lại (re-evaluate) tại thời điểm gửi thực tế; đối tượng nhận của campaign **ImportedList** được chốt (snapshot) tại thời điểm import, không re-evaluate khi gửi.
-- Trigger chỉ tự sinh thông báo khi đang **Bật** *và* đã có nội dung mẫu (Title + Body) được thiết lập; thiếu một trong hai điều kiện thì không sinh, không lỗi.
+- Số chưa đọc trên mỗi tab (kể cả tab "Tất cả") = số thông báo chưa đọc **thuộc nhóm đó, của user hiện tại** — không tính tổng toàn hệ thống.
+- Tìm kiếm từ khoá: không phân biệt hoa/thường, không dấu/có dấu.
 
 ---
 
@@ -143,87 +154,6 @@ public class NotificationTargetCondition
 
 Toàn bộ field có giá trị được kết hợp **AND** khi resolve — không hỗ trợ OR giữa các nhóm điều kiện. `ITargetAudienceResolver.ResolveAsync(condition)` dịch từng field thành điều kiện SQL tương ứng, chạy tại thời điểm gửi thực tế (không phải lúc tạo campaign).
 
-### 3.4 Migration (raw SQL, không dùng EF code-first migrations)
-
-`CTH.QuizSystem.EntityFrameworkCore/Migrations/Scripts/20260917_NotificationGroupingRules.sql`
-
-```sql
-ALTER TABLE dbo.NotificationTriggerDefinitions ADD [Group] INT NOT NULL DEFAULT 1;
-ALTER TABLE dbo.NotificationTriggerDefinitions
-    ADD CONSTRAINT CK_NotificationTriggerDefinitions_Group CHECK ([Group] IN (1, 2));
-ALTER TABLE dbo.NotificationTriggerDefinitions ADD AllowedPlaceholders NVARCHAR(500) NULL;
-ALTER TABLE dbo.NotificationTriggerDefinitions ADD [Name] NVARCHAR(100) NULL;
-
-ALTER TABLE dbo.NotificationCampaigns ADD [Group] INT NOT NULL DEFAULT 3;
-ALTER TABLE dbo.NotificationCampaigns
-    ADD CONSTRAINT CK_NotificationCampaigns_Group CHECK ([Group] IN (1, 2, 3));
-ALTER TABLE dbo.NotificationCampaigns ADD GroupKey NVARCHAR(256) NULL;
-ALTER TABLE dbo.NotificationCampaigns ADD SearchText NVARCHAR(600) NULL;
-ALTER TABLE dbo.NotificationCampaigns ADD IdempotencyKey NVARCHAR(256) NULL;
-
-ALTER TABLE dbo.NotificationRecipients ADD [Group] INT NOT NULL DEFAULT 3;
-ALTER TABLE dbo.NotificationRecipients ADD ClickedAt DATETIME2 NULL;
-
-CREATE TABLE dbo.NotificationCampaignImportedRecipients
-(
-    Id INT IDENTITY(1,1) PRIMARY KEY,
-    CampaignId INT NOT NULL REFERENCES dbo.NotificationCampaigns(Id),
-    UserId BIGINT NOT NULL
-);
-
-CREATE TABLE dbo.NotificationClickLogs
-(
-    Id INT IDENTITY(1,1) PRIMARY KEY,
-    RecipientId INT NOT NULL REFERENCES dbo.NotificationRecipients(Id),
-    ClickedAt DATETIME2 NOT NULL
-);
-
-CREATE TABLE dbo.LeaderboardRankSnapshots
-(
-    Id INT IDENTITY(1,1) PRIMARY KEY,
-    LeaderboardId INT NOT NULL,
-    UserId BIGINT NOT NULL,
-    Rank INT NOT NULL,
-    SnapshotAt DATETIME2 NOT NULL
-);
-
-CREATE NONCLUSTERED INDEX IX_NotificationCampaigns_GroupKey ON dbo.NotificationCampaigns(GroupKey);
-CREATE NONCLUSTERED INDEX IX_NotificationCampaigns_SearchText ON dbo.NotificationCampaigns(SearchText);
-CREATE UNIQUE NONCLUSTERED INDEX IX_NotificationCampaigns_IdempotencyKey
-    ON dbo.NotificationCampaigns(IdempotencyKey) WHERE IdempotencyKey IS NOT NULL;
-
-CREATE NONCLUSTERED INDEX IX_NotificationRecipients_UserId_Group_IsRead
-    ON dbo.NotificationRecipients (UserId, [Group], IsRead);
-CREATE NONCLUSTERED INDEX IX_NotificationCampaignImportedRecipients_CampaignId
-    ON dbo.NotificationCampaignImportedRecipients(CampaignId);
-CREATE NONCLUSTERED INDEX IX_LeaderboardRankSnapshots_LeaderboardId_UserId_SnapshotAt
-    ON dbo.LeaderboardRankSnapshots(LeaderboardId, UserId, SnapshotAt DESC);
-```
-
----
-
-## 4. Repositories
-
-```
-CTH.QuizSystem.Core/Notifications/Repositories/
-    INotificationCampaignRepository : IRepository<NotificationCampaign, int>
-    INotificationRecipientRepository : IRepository<NotificationRecipient, int>
-    INotificationTriggerDefinitionRepository : IRepository<NotificationTriggerDefinition, int>
-    INotificationCampaignImportedRecipientRepository : IRepository<NotificationCampaignImportedRecipient, int>
-    INotificationClickLogRepository : IRepository<NotificationClickLog, int>
-    ILeaderboardRankSnapshotRepository : IRepository<LeaderboardRankSnapshot, int>
-
-CTH.QuizSystem.EntityFrameworkCore/Repositories/Notifications/
-    NotificationCampaignRepository : QuizSystemRepositoryBase<NotificationCampaign, int>, INotificationCampaignRepository
-    NotificationRecipientRepository : QuizSystemRepositoryBase<NotificationRecipient, int>, INotificationRecipientRepository
-    NotificationTriggerDefinitionRepository : QuizSystemRepositoryBase<NotificationTriggerDefinition, int>, INotificationTriggerDefinitionRepository
-    NotificationCampaignImportedRecipientRepository : QuizSystemRepositoryBase<NotificationCampaignImportedRecipient, int>, INotificationCampaignImportedRecipientRepository
-    NotificationClickLogRepository : QuizSystemRepositoryBase<NotificationClickLog, int>, INotificationClickLogRepository
-    LeaderboardRankSnapshotRepository : QuizSystemRepositoryBase<LeaderboardRankSnapshot, int>, ILeaderboardRankSnapshotRepository
-```
-
-Không cần đăng ký DI thủ công — Abp convention-scan tự bắt.
-
 ---
 
 ## 5. Flows
@@ -318,73 +248,6 @@ query = query.Where(x => x.CreationTime >= cutoff);
 // GetCampaignHistoryAsync (MKT, US-05) — không cutoff
 ```
 
----
-
-## 6. Badge chưa đọc theo tab
-
-```csharp
-public async Task<NotificationUnreadCountsDto> GetUnreadCountsAsync()
-{
-    var userId = AbpSession.GetUserId(); // long
-
-    var rows = await (await _recipientRepo.GetQueryableAsync())
-        .Where(x => x.UserId == userId && !x.IsRead)
-        .GroupBy(x => x.Group)
-        .Select(g => new { g.Key, Count = g.Count() })
-        .ToListAsync();
-
-    var byGroup = rows.ToDictionary(x => x.Key, x => x.Count);
-    var study = byGroup.GetValueOrDefault(NotificationGroup.Study);
-    var order = byGroup.GetValueOrDefault(NotificationGroup.Order);
-    var news  = byGroup.GetValueOrDefault(NotificationGroup.News);
-
-    return new NotificationUnreadCountsDto
-    {
-        All = study + order + news,   // tab "Tất cả" — tổng 3 nhóm, không phải giá trị enum riêng
-        Study = study,
-        Order = order,
-        News  = news
-    };
-}
-```
-
-Dựa vào index `(UserId, Group, IsRead)` — không join `NotificationCampaigns`. Gọi độc lập với việc feed từng tab đã load hay chưa.
-
----
-
-## 7. Tìm kiếm — chuẩn hoá tiếng Việt
-
-**Quyết định:** cột `SearchText` chuẩn hoá sẵn (lowercase + bỏ dấu), tính một lần khi insert/update campaign — thay vì dùng `COLLATE` trong query, vì EF Core dịch collate override bất tiện và thường không tận dụng được index.
-
-```csharp
-namespace CTH.QuizSystem.Notifications
-{
-    public static class VietnameseTextNormalizer
-    {
-        public static string Normalize(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return string.Empty;
-
-            var lower = text.ToLowerInvariant().Replace('đ', 'd');
-            var decomposed = lower.Normalize(NormalizationForm.FormD);
-
-            var sb = new StringBuilder(decomposed.Length);
-            foreach (var c in decomposed)
-            {
-                if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-                    sb.Append(c);
-            }
-            return sb.ToString().Normalize(NormalizationForm.FormC);
-        }
-    }
-}
-```
-
-`đ`/`Đ` phải `Replace` thủ công trước khi decompose — `NormalizationForm.FormD` không tách nó vì đây là chữ cái riêng, không phải base + dấu.
-
-**Lưu ý vận hành:** nếu MKT sửa `Title`/`Body` của campaign đang `Draft`, `SearchText` phải được tính lại trong cùng setter/update method — không để chỗ nào cập nhật `Title` mà quên gọi `Normalize` lại. Sửa nội dung mẫu (`NotificationTriggerDefinition`) không ảnh hưởng thông báo cũ vì `Title`/`Body` đã được materialize vào `NotificationCampaign` tại thời điểm publish, không tham chiếu sống đến template.
-
----
 
 ## 8. Recurring jobs (DB-driven)
 
@@ -409,8 +272,5 @@ Jobs cần thiết:
 - Giới hạn số dòng / kích thước file khi MKT import danh sách.
 - Ngưỡng thời gian cho việc gộp dedupe (cùng `GroupKey`, chưa đọc) — gộp vô thời hạn cho đến khi đọc, hay giới hạn cửa sổ thời gian (ví dụ 24h)?
 - MKT có cần override `Group` hiển thị cho từng campaign Manual (khác "Tin TAK12") trong tương lai không, hay giữ cố định vĩnh viễn theo rule hiện tại?
-- Ngưỡng khối lượng dữ liệu để cân nhắc chuyển từ `SearchText.Contains()` sang SQL Server Full-Text Search.
 - Số lần nhắc lại tối đa cho TRG-02 nếu học sinh vẫn chưa làm bài sau khi đã nhắc.
-- Phạm vi cụ thể của `LeaderboardId` cho TRG-09/TRG-10 — theo lớp, khối, trường, hay toàn hệ thống; có thể có nhiều BXH học sinh theo dõi cùng lúc không.
-- Phân quyền xem/sửa thông báo Manual đang ở trạng thái "Nháp" — theo người tạo hay theo quyền chung của Admin Panel.
-- Xử lý khi MKT nhập mã HTML không hợp lệ ở chế độ soạn thô — cảnh báo hay tự sửa tag lỗi.
+- Phạm vi cụ thể của `LeaderboardId` cho TRG-09/TRG-10 — theo lớp, khối, trường, hay toàn hệ thống; có nhiều BXH của học sinh cùng lúc không.
