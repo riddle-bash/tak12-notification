@@ -46,89 +46,37 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 
 ## 3. Domain model
 
-### 3.1 Enums
-
-```csharp
-namespace CTH.QuizSystem.Notifications
-{
-    public enum NotificationGroup
-    {
-        Study = 1,  // "Học tập" — chỉ dùng cho Automate
-        Order = 2,  // "Đơn hàng" — chỉ dùng cho Automate
-        News  = 3   // "Tin TAK12" — cố định cho Manual
-    }
-
-    public enum NotificationSource
-    {
-        Manual,   // Admin tạo thủ công (chiến dịch gửi tay)
-        Trigger   // Tự động gửi khi có sự kiện kích hoạt (Automate)
-    }
-
-    public enum NotificationTargetType
-    {
-        All,          // Gửi cho tất cả người dùng
-        Segment,      // Gửi theo phân khúc / nhóm người dùng
-        ImportedList, // Gửi theo danh sách người dùng được import
-    }
-
-    public enum CampaignStatus
-    {
-        Draft,      // Bản nháp, chưa gửi
-        Scheduled,  // Đã lên lịch, chờ đến giờ gửi
-        Sending,    // Đang trong quá trình gửi
-        Sent,       // Đã gửi xong
-        Failed,     // Gửi thất bại
-        Cancelled   // Đã huỷ
-    }
-}
-```
-
 ### 3.2 Entities
 
 **`NotificationCampaign`** — `FullAuditedEntity` (int PK). Nội dung + metadata gửi, dùng chung cho cả Manual và Trigger.
 
 | Field | Type | Ghi chú |
 |---|---|---|
-| `Source` | `NotificationSource` | Manual hoặc Trigger |
-| `TriggerCode` | `string` | null nếu Manual; hoặc tham chiếu từ TriggerCode trong NotificationTriggers (ví dụ NewAchievement, NewSchoolAssignment) |
-| `Group` | `NotificationGroup` | Study/Order lấy từ trigger config; News nếu Manual (hard-coded) |
-| `GroupKey` | `string` | khoá dedupe theo entity cụ thể, ví dụ `"TRG-04:4821"`; null với campaign Manual |
+| `Category` | `smallint` | Phân loại theo Học tập, Đổi Gems, ... |
 | `Title`, `Body` | `string` | Manual: Title ≤ 100, Body ≤ 2.000 ký tự |
 | `LinkUrl` | `string` | dùng cho click tracking |
 | `PayloadJson` | `string` | deep-link data (achievementId, orderId...) |
-| `SearchText` | `string` | title+body đã chuẩn hoá (lowercase, bỏ dấu), tính lại mỗi khi Title/Body đổi (Optional) |
-| `TargetType` | `NotificationTargetType` | Loại HS: Theo DS import hoặc tất cả HS |
-| `TargetConditionJson` | `string` | serialize từ `NotificationTargetCondition` (xem bên dưới) — chỉ dùng khi `TargetType = Segment` |
+| `TargetType` | `smallint` | Loại HS: Theo DS import hoặc tất cả HS |
+| `TargetFilterJson` | `string` | Chuỗi JSON cho các điều kiện để lọc các HS cần thông báo (ví dụ: lớp 5, học Ôn thi vào 6 UMS, ..) |
 | `TargetUserIdsJson` | `string` | danh sách user đã đối chiếu khi MKT import danh sách HS |
 | `ScheduledAt`, `SentAt` | `DateTime?` | |
-| `Status` | `CampaignStatus` | |
-| `RecipientCount`, `ReadCount`, `ClickCount` | `int` | denormalized, cập nhật định kỳ; `ClickCount` = tổng lượt click (đếm sự kiện, không phải unique user) |
-| `IdempotencyKey` | `string` | tránh publish trùng khi job retry |
+| `RecipientCount`, `ReadCount`, `ClickCount` | `int` | Phục vụ cho business |
+| `IdempotencyKey` | `string` |khoá dedupe để tránh insert trùng dữ liệu khi có nhiều worker |
+| `IsActive` | `bit` | |
 
-**`NotificationRecipient`** — `Entity<int>` với `CreationTime` thủ công (child/log row, theo convention `AchievementUser`/`GemShopOrderLog`). **Không đặt tên `UserNotification`** — trùng với `Abp.Notifications.UserNotification` đã dùng trong `GetNotificationsOutput.cs`.
+**`NotificationRecipient`** — Bổ sung Title, Body để personalize cho user
 
 | Field | Type | Ghi chú |
 |---|---|---|
 | `UserId` | `long` | khớp `IRepository<User, long>` |
-| `CampaignId` | `int` | FK → `NotificationCampaign` |
-| `Group` | `NotificationGroup` | denormalized từ Campaign — feed query không cần join |
+| `CampaignId` | `int?` | |
+| `MessageTemplateId` | `int?` | |
+| `Title` | `string` | |
+| `Body` | `string` | |
 | `IsRead` | `bool` | |
 | `ReadAt` | `DateTime?` | |
 | `ClickedAt` | `DateTime?` | mốc lần click gần nhất — dùng cho UI "đã từng click chưa"; tổng lượt click nằm ở `NotificationClickLog` |
 | `CreationTime` | `DateTime` | |
-
-**`NotificationTriggerDefinition`** — `Entity<int>`. Cấu hình admin cho từng trigger tự động; **11 dòng khởi điểm được seed sẵn** (xem §5.2), Admin chỉnh metadata (tên, nhóm, bật/tắt, nội dung mẫu), không tự tạo `TriggerCode` mới qua UI.
-
-| Field | Type | Ghi chú |
-|---|---|---|
-| `TriggerCode` | `string` | unique, cố định do hệ thống sinh (`TRG-01`…`TRG-11`), không sửa được sau khi tạo |
-| `Name` | `string` | tên hiển thị trên Admin Panel, MKT/Admin có thể đổi, ≤ 100 ký tự |
-| `Group` | `NotificationGroup` | chỉ nhận `Study` hoặc `Order` — enforce ở app service + CHECK constraint |
-| `TitleTemplate` | `string` | ≤ 100 ký tự, hỗ trợ placeholder `{{...}}` |
-| `BodyTemplate` | `string` | ≤ 500 ký tự, hỗ trợ placeholder + link |
-| `AllowedPlaceholders` | `string` | CSV các biến động hợp lệ cho trigger này, ví dụ `"ten_hoc_sinh,ten_danh_hieu,ngay_dat"` — validate khi lưu template |
-| `LinkUrlTemplate` | `string` | |
-| `IsActive` | `bool` | |
 
 **`LeaderboardRankSnapshot`** — `Entity<int>`. Lưu rank kỳ trước để so sánh, phục vụ riêng TRG-09 (vào Top 10) và TRG-10 (rời Top 10).
 
@@ -148,7 +96,7 @@ public class TargetConditionJson
 {
     public List<AccountType> AccountTypes { get; set; }       // mặc định hiện
     public List<int> BirthYears { get; set; }                  // mặc định hiện
-    public List<int> PurchasedPackageIds { get; set; }         // "+ Thêm điều kiện"
+    public List<int> PurchasedEditionIds { get; set; }         // "+ Thêm điều kiện"
     public List<int> InterestedExamIds { get; set; }           // "+ Thêm điều kiện"
     public int? ActiveWithinDays { get; set; }                  // "+ Thêm điều kiện"
 }
