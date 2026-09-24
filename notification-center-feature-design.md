@@ -64,6 +64,7 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 | `IsActive` | `bit` | |
 | `Status` | `smallint` | enums cho trạng thái |
 | `RecipientCount`, `ReadCount`, `ClickCount` | `int` | Phục vụ cho business |
+| `TriggerCode` | `string` | |
 
 **`NotificationRecipient`** — Bổ sung Title, Body để personalize cho user
 
