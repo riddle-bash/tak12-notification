@@ -52,6 +52,7 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 
 | Field | Type | Ghi chú |
 |---|---|---|
+| `Type` | `smallint` | Trigger hoặc Manual |
 | `Category` | `smallint` | Phân loại theo Học tập, Đổi Gems, ... |
 | `Title`, `Body` | `string` | Manual: Title ≤ 100, Body ≤ 2.000 ký tự |
 | `LinkUrl` | `string` | Link khi user ấn vào thông báo |
@@ -60,17 +61,16 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 | `TargetFilterJson` | `string` | Chuỗi JSON cho các điều kiện để lọc các HS cần thông báo (ví dụ: lớp 5, học Ôn thi vào 6 UMS, ..) |
 | `TargetUserIdsJson` | `string` | danh sách user đã đối chiếu khi MKT import danh sách HS |
 | `ScheduledAt`, `SentAt` | `DateTime?` | |
-| `RecipientCount`, `ReadCount`, `ClickCount` | `int` | Phục vụ cho business |
 | `IsActive` | `bit` | |
 | `Status` | `smallint` | enums cho trạng thái |
+| `RecipientCount`, `ReadCount`, `ClickCount` | `int` | Phục vụ cho business |
 
 **`NotificationRecipient`** — Bổ sung Title, Body để personalize cho user
 
 | Field | Type | Ghi chú |
 |---|---|---|
 | `UserId` | `long` | khớp `IRepository<User, long>` |
-| `CampaignId` | `int?` | |
-| `MessageTemplateId` | `int?` | |
+| `FK: CampaignId` | `int` | |
 | `Title` | `string` | |
 | `Body` | `string` | |
 | `IsRead` | `bool` | |
@@ -88,18 +88,9 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 | `SnapshotAt` | `DateTime` | |
 | `ExamId` | `int` | Global có examId = 0 |
 
-**Bổ sung trong `MessageTemplates`
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/5e1c18b9-2a62-430c-bfc7-8f95ffed478f" />
 
-| Field | Type | Ghi chú |
-|---|---|---|
-| ... | ... | ... |
-| `NotificationCategory` | `smallint` | |
-| `LinkUrl` | `string` | |
-| `Type` | `smallint` | Phân biệt giữa email và notification |
-
-<img width="961" height="695" alt="image" src="https://github.com/user-attachments/assets/11c30eb7-eb27-4fb5-8efc-e99a41ad4103" />
-
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/638e4bfd-59e6-4864-9ec0-9d980ffa9a71" />
+<img width="879" height="633" alt="image" src="https://github.com/user-attachments/assets/736a89bd-91f1-4579-8228-d93ede4c35c7" />
 
 ### 3.3 Target condition schema (thay cho JSON tự do)
 
@@ -148,8 +139,6 @@ Toàn bộ field có giá trị được kết hợp **AND** khi resolve
 
 ### 5.2 Luồng B — Trigger tự động
 
-**Danh sách MessageTemplate bổ sung**
-
 | Name | Category | Sự kiện | Ghi chú xử lý |
 |---|---|---|---|
 | TRG-01 | Học tập | Giao bài (School/phụ huynh/giáo viên) | `entityKey` = assignmentId; `{{nguoi_giao}}` để phân biệt nguồn giao |
@@ -166,10 +155,10 @@ Toàn bộ field có giá trị được kết hợp **AND** khi resolve
 
 Seed 11 dòng này qua SQL khi migration chạy;
 
-1. **Admin cấu hình** — Thiết lập `Subject`/`Body` (≤ 100 / ≤ 500 ký tự) cho MessageTemplate
+1. **Admin cấu hình** — Thiết lập `Subject`/`Body` (≤ 100 / ≤ 500 ký tự) cho TriggerTemplate
 2. **Backend phát sinh** — gọi trực tiếp từ đúng chỗ trong domain logic, qua `NotificationTriggerService.PublishAsync(triggerCode, userId, entityKey, placeholders)`:
    ```csharp
-   var trigger = await _messageTemplateRepository.FirstOrDefaultAsync(x => x.Name == triggerCode && x.IsActive);
+   var trigger = await _notificationTriggerRepository.FirstOrDefaultAsync(x => x.Name == triggerCode && x.IsActive);
    if (trigger == null || string.IsNullOrWhiteSpace(trigger.Subject) || string.IsNullOrWhiteSpace(trigger.Body))
        return; // Bật nhưng chưa có nội dung mẫu → im lặng bỏ qua, đúng business rule US-06
    ```
