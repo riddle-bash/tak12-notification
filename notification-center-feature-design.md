@@ -54,7 +54,7 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 |---|---|---|
 | `Category` | `smallint` | Phân loại theo Học tập, Đổi Gems, ... |
 | `Title`, `Body` | `string` | Manual: Title ≤ 100, Body ≤ 2.000 ký tự |
-| `LinkUrl` | `string` | dùng cho click tracking |
+| `LinkUrl` | `string` | Link khi user ấn vào thông báo |
 | `PayloadJson` | `string` | deep-link data (achievementId, orderId...) |
 | `TargetType` | `smallint` | Loại HS: Theo DS import hoặc tất cả HS |
 | `TargetFilterJson` | `string` | Chuỗi JSON cho các điều kiện để lọc các HS cần thông báo (ví dụ: lớp 5, học Ôn thi vào 6 UMS, ..) |
@@ -75,7 +75,7 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 | `Body` | `string` | |
 | `IsRead` | `bool` | |
 | `ReadAt` | `DateTime?` | |
-| `ClickedAt` | `DateTime?` | mốc lần click gần nhất — dùng cho UI "đã từng click chưa"; tổng lượt click nằm ở `NotificationClickLog` |
+| `ClickedAt` | `DateTime?` |  |
 | `CreationTime` | `DateTime` | |
 | `IdempotencyKey` | `string` | khoá dedupe để tránh insert trùng dữ liệu khi có nhiều worker |
 
