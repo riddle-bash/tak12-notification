@@ -197,7 +197,7 @@ query = query.Where(x => x.CreationTime >= cutoff);
 ```
 
 
-## 8. Open questions
+## 6. Open questions
 
 - Số ngày retention hiển thị phía học sinh — đề xuất mặc định 90 ngày, cần chốt.
 - Số lần nhắc lại tối đa cho TRG-02 nếu học sinh vẫn chưa làm bài sau khi đã nhắc.
