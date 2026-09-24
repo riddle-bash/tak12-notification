@@ -90,7 +90,8 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 
 <img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/5e1c18b9-2a62-430c-bfc7-8f95ffed478f" />
 
-<img width="879" height="633" alt="image" src="https://github.com/user-attachments/assets/736a89bd-91f1-4579-8228-d93ede4c35c7" />
+<img width="975" height="627" alt="image" src="https://github.com/user-attachments/assets/af3e3127-5e3f-497f-a10a-2280bc260799" />
+
 
 ### 3.3 Target condition schema (thay cho JSON tự do)
 
