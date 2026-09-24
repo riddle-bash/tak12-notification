@@ -97,6 +97,10 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 | `LinkUrl` | `string` | |
 | `Type` | `smallint` | Phân biệt giữa email và notification |
 
+<img width="961" height="695" alt="image" src="https://github.com/user-attachments/assets/11c30eb7-eb27-4fb5-8efc-e99a41ad4103" />
+
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/638e4bfd-59e6-4864-9ec0-9d980ffa9a71" />
+
 ### 3.3 Target condition schema (thay cho JSON tự do)
 
 `TargetFilterJson` : điều kiện để filter user được thông báo trong campaign
