@@ -65,6 +65,7 @@ Hệ thống cố tình chạy **song song hai cơ chế** (theo yêu cầu th�
 | `Status` | `smallint` | enums cho trạng thái |
 | `RecipientCount`, `ReadCount`, `ClickCount` | `int` | Phục vụ cho business |
 | `TriggerCode` | `string` | |
+| `ScheduledHangfireJobId` | `int?` | |
 
 **`NotificationRecipient`** — Bổ sung Title, Body để personalize cho user
 
